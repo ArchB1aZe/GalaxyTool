@@ -1,0 +1,123 @@
+<tool id="ctb_silicos_qed" name="Drug-likeness" version="0.1">
+    <description>quantitative estimation (QED)</description>
+    <!--parallelism method="multi" split_inputs="infile" split_mode="to_size" split_size="10000" shared_inputs="" merge_outputs="outfile"></parallelism-->
+    <requirements>
+        <requirement type="package" version="2015.09.2">rdkit</requirement>
+    </requirements>
+    <command detect_errors="aggressive">
+<![CDATA[
+    python $__tool_directory__/qed.py
+        -i "${infile}"
+        --method "${method}"
+        --iformat ${infile.ext}
+        -o "${outfile}"
+        $header
+]]>
+    </command>
+    <inputs>
+        <param format="smi,sdf" name="infile" type="data" label="Molecule data in SD- or SMILES-format" help="Dataset missing? See TIP below"/>
+        <param name="method" type="select" label="Method">
+            <option value="max">Max weight (QEDw,max)</option>
+            <option value="mean">Mean weight (QEDw,mo)</option>
+            <option value="unweighted">unweighted (QEDw,u)</option>
+        </param>
+        <param name="header" type="boolean" label="Include the descriptor name as header" truevalue="--header" falsevalue="" checked="false" />
+    </inputs>
+    <outputs>
+        <data format="tabular" name="outfile" />
+    </outputs>
+    <tests>
+        <!--
+        Test a tabular input with the first line being a comment without a # character to start
+        -->
+        <test>
+          <param name="infile" value="qed_test.smi" ftype="smi"/>
+          <param name="method" value="max"/>
+          <param name="header" value="True"/>
+          <output name="outfile" file="qed_test_max.tab" ftype="tabular"/>
+        </test>
+        <test>
+          <param name="infile" value="qed_test.smi" ftype="smi"/>
+          <param name="method" value="mean"/>
+          <param name="header" value="True"/>
+          <output name="outfile" file="qed_test_mean.tab" ftype="tabular"/>
+        </test>
+        <test>
+          <param name="infile" value="qed_test.smi" ftype="smi" />
+          <param name="method" value="unweighted"/>
+          <param name="header" value="True"/>
+          <output name="outfile" file="qed_test_unweighted.tab" ftype="tabular" />
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+
+.. class:: infomark
+
+**What this tool does**
+
+Estimates the drug-likeness of molecules and reports a score. Comes with three applicable varieties (QED\ :sub:`w,mo`\ , QED\ :sub:`w,max`\ , QED\ :sub:`w,u` ).
+
+-----
+
+.. class:: warningmark
+
+**HINT**
+
+- All invalid, blank and comment lines are skipped when performing computations. The number of skipped lines is displayed in the resulting history item.
+
+- QED\ :sub:`w,max` using the set of weights that give maximal information content
+
+- QED\ :sub:`w,mo` using the mean weights of the optimal 1,000 weight combinations that give the highest information content
+
+- QED\ :sub:`w,u` with all weights as unity, hence unweighted.
+
+-----
+
+.. class:: infomark
+
+**Input**
+
+
+| - `SD-Format`_
+| - `SMILES Format`_
+
+.. _SD-Format: http://en.wikipedia.org/wiki/Chemical_table_file
+.. _SMILES Format: http://en.wikipedia.org/wiki/Simplified_molecular_input_line_entry_specification
+
+-----
+
+.. class:: infomark
+
+**Output**
+
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+|   MW   | ALOGP | HBA | HBD |   PSA  | ROTB | AROM | ALERTS |  QED  |      NAME      | Ro5 |
++========+=======+=====+=====+========+======+======+========+=======+================+=====+
+| 286.34 | 1.092 |  6  |  3  | 101.88 |   4  |   2  |    1   | 0.737 | Abacavir       |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 181.21 | 0.481 |  4  |  2  |  83.47 |   5  |   0  |    2   | 0.487 | Acamprosate    |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 336.43 | 2.365 |  5  |  3  |  87.66 |  11  |   1  |    1   | 0.540 | Acebutolol     |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 151.16 | 1.351 |  2  |  2  |  49.33 |   2  |   1  |    1   | 0.633 | Acetaminophen  |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 222.25 | 0.225 |  5  |  2  | 115.04 |   3  |   1  |    1   | 0.727 | Acetazolamide  |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 324.40 | 3.291 |  4  |  2  |  92.34 |   6  |   1  |    1   | 0.772 | Acetohexamide  |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 411.57 | 3.492 |  6  |  1  |  47.02 |   7  |   2  |    1   | 0.688 | Acetophenazine |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 329.37 | 3.327 |  4  |  1  |  39.72 |   4  |   2  |    0   | 0.917 | Paroxetine     |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+| 270.21 | 3.146 |  3  |  1  |  55.13 |   4  |   2  |    0   | 0.915 | Leflunomide    |  0  |
++--------+-------+-----+-----+--------+------+------+--------+-------+----------------+-----+
+
+
+
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1038/nchem.1243</citation>
+    </citations>
+</tool>

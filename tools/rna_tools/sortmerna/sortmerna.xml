@@ -1,0 +1,399 @@
+<tool id="bg_sortmerna" name="Filter with SortMeRNA" version="2.1b.1">
+    <description>Fast and accurate filtering of ribosomal RNAs in metatranscriptomic data</description>
+    <requirements>
+        <requirement type="package" version="2.1b">sortmerna</requirement>
+    </requirements>
+    <stdio>
+        <regex match="This program builds a Burst trie on an input rRNA database"
+            source="both"
+            level="fatal"
+            description="Buildtrie program failed to execute." />
+        <regex match="The database name"
+            source="both"
+            level="fatal"
+            description="The database ${databases} has not been preprocessed using buildtrie before using SortMeRNA." />
+        <regex match="ERROR"
+            source="both"
+            level="fatal"
+            description="ERROR" />
+    </stdio>
+    <version_command>
+<![CDATA[
+sortmerna --version 2>&1|grep 'SortMeRNA version'
+]]>
+    </version_command>
+    <command>
+<![CDATA[
+    #set $ref = ''
+    #set $sep=''
+    #if str( $databases_type.databases_selector ) == 'history'
+        #for $db in $databases_type.database_name
+            #set $ref += $sep + str($db) + ',' + $os.path.splitext($os.path.basename(str($db)))[0]
+            #set $sep = ':'
+        #end for
+    #else if str( $databases_type.databases_selector ) == 'cached_to_index'
+        ## databases path is not directly accessible, must match by hand with LOC file contents
+        #set $data_table = dict([(_[0], _[2]) for _ in $databases_type.input_databases.input.options.tool_data_table.data])
+        #for $db in $databases_type.input_databases.value
+            #set $ref += $sep + $data_table[$db] + ',' + $os.path.splitext($data_table[$db])[0] + '-reindexed'
+            #set $sep = ':'
+        #end for
+    #else:
+        ## databases path is not directly accessible, must match by hand with LOC file contents
+        #set $data_table = dict([(_[0], _[2]) for _ in $databases_type.input_databases.input.options.tool_data_table.data])
+        #for $db in $databases_type.input_databases.value
+            #set $ref += $sep + $data_table[$db] + ',' + $os.path.splitext($data_table[$db])[0]
+            #set $sep = ':'
+        #end for
+    #end if
+
+    #if str( $databases_type.databases_selector ) != 'cached':
+        indexdb_rna 
+            --ref $ref 
+            -L $databases_type.seed_length 
+            --max_pos $databases_type.max_pos 
+        &&
+    #end if
+
+    sortmerna 
+    	--ref $ref 
+    	--reads $input_reads 
+    	--aligned aligned
+	
+    	#if str( $sequencing_type.sequencing_type_selector ) == 'paired'
+            	$sequencing_type.paired_type
+    	#end if
+
+    	$strand_search
+    	$aligned_fastx.aligned_fastx_selector
+    	#if $aligned_fastx.aligned_fastx_selector == '--fastx'
+        	#if $aligned_fastx.other
+            		--other other_file
+        	#end if
+    	#end if
+    	$aligned_sam.aligned_sam_selector
+    	#if $aligned_sam.aligned_sam_selector == '--sam'
+        	$aligned_sam.sq
+    	#end if
+    	#if $aligned_blast.aligned_blast_selector == '--blast'
+        	--blast "$aligned_blast.aligned_blast_format"
+    	#end if
+
+    	$log
+
+        #if $report.report_type == 'best'
+            #if $report.report_best.report_best_type == '1'
+                --best 1
+                --min_lis $report.report_best.report_best_min_lis
+            #else
+                --best $report.report_best.report_best_value
+                --min_lis $report.report_best.report_best_min_lis
+            #end if
+        #else
+            #if $report.report_num_alignments.report_num_alignments_type == 'other_value'
+                --num_alignments $report.report_num_alignments.report_num_alignments_value
+            #else
+                --num_alignments $report.report_num_alignments.report_num_alignments_type
+            #end if
+        #end if
+
+        -e $e_value
+        --match $match
+        --mismatch $mismatch
+        --gap_open $gap_open
+        --gap_ext $gap_ext
+        -N $ambiguous_letter
+    	-a \${GALAXY_SLOTS:-1}
+]]>
+    </command>
+    <inputs>
+        <param format="fasta,fastq" name="input_reads" type="data" label="Querying sequences" help="In FASTA or FASTQ format (--reads)"/>
+        <conditional name="sequencing_type">
+            <param name="sequencing_type_selector" type="select" label="Sequencing type">
+                <option value="not_paired">Reads are not paired</option>
+                <option value="paired">Reads are paired</option>
+            </param>
+            <when value="not_paired" />
+            <when value="paired">
+                <param name="paired_type" type="select" display="radio" label="If one of the paired-end reads aligns and the other one does not">
+                    <option value="">leave the reads split between aligned and rejected files</option>
+                    <option value="--paired-in">output both reads to aligned file (--paired-in)</option>
+                    <option value="--paired-out">output both reads to rejected file (--paired-out)</option>
+                </param>
+            </when>
+        </conditional>
+
+        <param name="strand_search" type="select" label="Which strands to search">
+            <option value="">Search both strands</option>
+            <option value="-F">Search only the forward strand (-F)</option>
+            <option value="-R">Search only the reverse-complementary strand (-R)</option>
+        </param>
+
+        <conditional name="databases_type">
+            <param name="databases_selector" type="select" label="Databases to query"
+                help="Public rRNA databases provided with SortMeRNA have been indexed.
+                    On the contrary, personal databases must be indexed each time SortMeRNA is launched.
+                    Please be patient, this may take some time depending on the size of the given database.">
+                <option value="cached" selected="true">Public pre-indexed ribosomal databases</option>
+                <option value="cached_to_index">Public ribosomal databases to index with non default parameters</option>
+                <option value="history">Databases from your history</option>
+            </param>
+            <when value="cached">
+                <param name="input_databases" label="rRNA databases" type="select" display="checkboxes" multiple="true">
+                    <options from_data_table="rRNA_databases" />
+                    <validator type="no_options" message="Select at least one database"/>
+                </param>
+            </when>
+            <when value="cached_to_index">
+                <param name="input_databases" label="rRNA databases" type="select" display="checkboxes" multiple="true">
+                    <options from_data_table="rRNA_databases" />
+                    <validator type="no_options" message="Select at least one database"/>
+                </param>
+                <param name="seed_length" type="integer" min="0" max="100" value="18" label="Seed length for database indexing" help="(-L)"/>
+                <param name="max_pos" type="integer" min="0" max="100000" value="10000" label="Maximum number of positions to store for each k-mer for database indexing" help="With 0, all positions are stored (--max_pos)"/>
+            </when>
+            <when value="history">
+                <param name="database_name" type="data" format="fasta" multiple="true" label="rRNA databases"
+                    help="Your databases will be indexed first, which may take up to several minutes."/>
+                <param name="seed_length" type="integer" min="0" max="100" value="18" label="Seed length for database indexing" help="(-L)"/>
+                <param name="max_pos" type="integer" min="0" max="100000" value="10000" label="Maximum number of positions to store for each k-mer for database indexing" help="With 0, all positions are stored (--max_pos)"/>
+            </when>
+        </conditional>
+
+        <!-- Outputs -->
+        <conditional name="aligned_fastx">
+            <param name="aligned_fastx_selector" type="select" label="Include aligned reads in FASTA/FASTQ format?">
+                <option value="--fastx">Yes (--fastx)</option>
+                <option value="">No</option>
+            </param>
+            <when value="--fastx">
+                <param name="other" type="boolean" label="Include rejected reads file?" help="(--other)" />
+            </when>
+            <when value="" />
+        </conditional>
+        <conditional name="aligned_sam">
+            <param name="aligned_sam_selector" type="select" label="Include alignments in SAM format?">
+                <option value="--sam">Yes (--sam)</option>
+                <option value="">No</option>
+            </param>
+            <when value="--sam">
+                <param name="sq" type="boolean" truevalue="--SQ" falsevalue="" label="Add SQ tags to the SAM file" help="(--SQ)" />
+            </when>
+            <when value="" />
+        </conditional>
+        <conditional name="aligned_blast">
+            <param name="aligned_blast_selector" type="select" label="Include alignments in BLAST-like format?">
+                <option value="--blast">Yes</option>
+                <option value="" selected="true">No</option>
+            </param>
+            <when value="--blast">
+                <param name="aligned_blast_format" type="select" label="BLAST-like format?">
+                    <option value="0">pairwise (--blast '0')</option>
+                    <option value="1">tabular BLAST -m 8 format (--blast '1')</option>
+                    <option value="1 cigar">tabular + column for CIGAR (--blast '1 cigar')</option>
+                    <option value="1 cigar qcov">tabular + columns for CIGAR and query coverage (--blast '1 cigar qcov')</option>
+                    <option value="1 cigar qcov qstrand">tabular + columns for CIGAR, query coverage and strand (--blast '1 cigar qcov qstrand')</option>
+                </param>
+            </when>
+            <when value="" />
+        </conditional>
+        <param name="log" type="boolean" checked="false" truevalue="--log" falsevalue="" label="Generate statistics file"
+               help="Generates statistics for the rRNA content of reads, as well as rRNA subunit distribution. (--log)">
+        </param>
+	<conditional name="report">
+            <param name="report_type" type="select" label="Parameters for filtering and read mapping" help="">
+                <option value="best" selected="true">Report best alignments per read reaching E-value</option>
+                <option value="num_alignments">Report first alignements per read reaching E-value</option>
+            </param>
+            <when value="best">
+                <conditional name="report_best">
+                    <param name="report_best_type" type="select" label="Number of searched alignments" help="Only the best alignment is reported (--best)">
+                        <option value="1" selected="true">Only one high-candidate reference sequence is searched for alignments (fast). The high-candidate sequences are determined heuristically using a LIS of seed matches)</option>
+                        <option value="other_value">A custom number of reference sequences are searched for alignments (speed decrease for high value)</option>
+                    </param>
+                    <when value="1">
+                        <param name="report_best_min_lis" type="integer" min="0" max="100" value="2" label="Number of longest LIS an alignement needs to be searched" help="The alignements having the first INT longest LIS. LIS stands for Longest Increasing Subsequence, it is computed using seeds' positions to expand hits into longer matches prior to Smith-Waterman alignment. (--min_lis)"/>
+                    </when>
+                    <when value="other_value">
+                        <param name="report_best_value" type="integer" min="2" max="100" value="2" label="Number of alignments to be made" help="Only the best one is reported. The computation speed decrease with high value"/>
+                        <param name="report_best_min_lis" type="integer" min="0" max="100" value="2" label="Number of longest LIS an alignement needs to be searched" help="The alignements having the first INT longest LIS. LIS stands for Longest Increasing Subsequence, it is computed using seeds' positions to expand hits into longer matches prior to Smith-Waterman alignment. (--min_lis)"/>
+                    </when>
+                </conditional>
+            </when>
+            <when value="num_alignments">
+                <conditional name="report_num_alignments">
+                    <param name="report_num_alignments_type" type="select" label="Number of output alignments" help="(--num_alignments)">
+                        <option value="0">All alignments reaching the E-value threshold are reported (very slow, this option is not suggested for high similarity rRNA databases)</option>
+                        <option value="1" selected="true">The first alignment passing E-value threshold are reported (very fast, best choice if only filtering is needed)</option>
+                        <option value="other_value">A custom number of alignments are made and reported (speed decrease for high value)</option>
+                    </param>
+                    <when value="0" />
+                    <when value="1" />
+                    <when value="other_value">
+                        <param name="report_num_alignments_value" type="integer" min="0" max="100" value="1" label="Number of alignments to be made and reported" help=""/>
+                    </when>
+                </conditional>
+            </when>
+        </conditional>
+
+        <param name="e_value" type="float" min="0" max="10" value="1" label="E-value threshold" help="(-e)"/>
+        <param name="match" type="integer" min="0" max="10" value="2" label="SW score for a match" help="(--match)"/>
+        <param name="mismatch" type="integer" min="-10" max="0" value="-3" label="SW penalty for a mismatch" help="(--mismatch)"/>
+        <param name="gap_open" type="integer" min="0" max="10" value="5" label="SW penalty for introducing a gap" help="(--gap_open)"/>
+        <param name="gap_ext" type="integer" min="0" max="10" value="2" label="SW penalty for extending a gap" help="(--gap_ext)"/>
+        <param name="ambiguous_letter" type="integer" min="-10" max="0" value="-3" label="SW penalty for ambiguous letters (N's)" help="(-N)"/>
+    </inputs>
+    <outputs>
+        <data format_source="input_reads" name="output_fastx" from_work_dir="aligned.dat"
+            label="Aligned reads on ${on_string} (${input_reads.datatype.file_ext})">
+            <filter>aligned_fastx['aligned_fastx_selector']</filter>
+        </data>
+        <data format_source="input_reads" name="output_other" from_work_dir="other_file.dat"
+            label="Rejected reads on ${on_string} (${input_reads.datatype.file_ext})">
+            <filter>aligned_fastx['aligned_fastx_selector'] and aligned_fastx['other']</filter>
+        </data>
+        <data format="sam" name="output_sam" from_work_dir="aligned.sam"
+            label="Alignments on ${on_string} (SAM)">
+            <filter>aligned_sam['aligned_sam_selector']</filter>
+        </data>
+        <data format="tabular" name="output_blast" from_work_dir="aligned.blast"
+            label="Alignments on ${on_string} (BLAST)">
+            <filter>aligned_blast['aligned_blast_selector']</filter>
+            <change_format>
+                <when input="aligned_blast.aligned_blast_format" value="0" format="txt" />
+            </change_format>
+        </data>
+        <data format="txt" name="output_log" label="${tool.name} statistics (txt)" from_work_dir="aligned.log">
+            <filter>log</filter>
+        </data>
+    </outputs>
+    <tests>
+        <test>
+            <param name="input_reads" value="read_small.fastq" />
+            <param name="sequencing_type_selector" value="not_paired" />
+            <param name="strand_search" value="" />
+            <param name="databases_selector" value="history" />
+            <param name="database_name" value="ref_small.fasta" />
+            <param name="aligned_fastx_selector" value="--fastx" />
+            <param name="other" value="True" />
+            <param name="aligned_sam_selector" value="--sam" />
+            <param name="aligned_blast_selector" value="--blast"/>
+            <param name="aligned_blast_format" value="1 cigar qcov" />
+            <param name="log" value="" />
+            <param name="report_type" value="best" />
+            <param name="report_best_type" value="1" />
+            <param name="e_value" value="1"/>
+            <param name="match" value="2"/>
+            <param name="mismatch" value="-3" />
+            <param name="gap_open" value="5"/>
+            <param name="gap_ext" value="2"/>
+            <param name="ambiguous_letter" value="-3"/>
+            <output name="output_fastx" file="sortmerna_wrapper_accept1.fastq" />
+            <output name="output_other" file="sortmerna_wrapper_other1.fastq" />
+            <output name="output_sam" file="sortmerna_wrapper_sam1.sam" lines_diff="2" />
+        </test>
+        <test>
+            <param name="input_reads" value="read_small.fasta" />
+            <param name="sequencing_type_selector" value="not_paired" />
+            <param name="strand_search" value="" />
+            <param name="databases_selector" value="history" />
+            <param name="database_name" value="ref_small.fasta" />
+            <param name="aligned_fastx_selector" value="--fastx" />
+            <param name="other" value="True" />
+            <param name="aligned_sam_selector" value="--sam" />
+            <param name="aligned_blast" value="" />
+            <param name="log" value="" />
+            <param name="report_type" value="best" />
+            <param name="report_best_type" value="1" />
+            <param name="report_type" value="best" />
+            <param name="report_best_type" value="1" />
+            <param name="e_value" value="1"/>
+            <param name="match" value="2"/>
+            <param name="mismatch" value="-3" />
+            <param name="gap_open" value="5"/>
+            <param name="gap_ext" value="2"/>
+            <param name="ambiguous_letter" value="-3"/>
+            <output name="output_fastx" file="sortmerna_wrapper_accept2.fasta" />
+            <output name="output_other" file="sortmerna_wrapper_other2.fasta" />
+            <output name="output_sam" file="sortmerna_wrapper_sam2.sam" lines_diff="2" />
+        </test>
+    </tests>
+    <help>
+<![CDATA[
+**What it does**
+
+SortMeRNA_ is a software designed to rapidly filter ribosomal RNA fragments
+from metatransriptomic data produced by next-generation sequencers.
+It is capable of handling large RNA databases and sorting out all fragments
+matching to the database with high accuracy and specificity.
+
+.. _SortMeRNA: http://bioinfo.lifl.fr/RNA/sortmerna/
+
+
+**Input**
+
+The input is one file of reads in FASTA or FASTQ format and any number of rRNA databases to search against.
+If the user has two foward-reverse paired-sequencing reads files, they may use
+the script "merge_paired_reads.sh" to interleave the reads into one file, preserving their order.
+
+If the sequencing type for the reads is paired-ended, the user has two options under
+"Sequencing type" to filter the reads and preserve their order in the file.
+For a further example of each option, please refer to Section 4.2.3 in the `SortMeRNA User Manual`_.
+
+.. _sortmerna user manual: http://bioinfo.lifl.fr/RNA/sortmerna/code/SortMeRNA-user-manual-v1.7.pdf
+
+
+**Output**
+
+The output will follow the same format (FASTA or FASTQ) as the reads. Optionally, a statistic file for the rRNA content of reads, as well as rRNA subunit distribution can be generated.
+
+
+**rRNA databases**
+
+SortMeRNA is distributed with 8 representative rRNA databases, which were
+all constructed from the SILVA SSU,LSU (version 111) and the RFAM 5/5.8S
+(version 11.0) databases using the tool UCLUST.
+
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| Representative database  | id % | average id% | # seq (clustered) | Origin                 |  # seq (original) |
++==========================+======+=============+===================+========================+===================+
+| SILVA 16S bacteria       |   85 |        91.6 |              8174 | SILVA SSU Ref NR v.111 |            244077 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| SILVA 16S archaea        |   95 |        96.7 |              3845 | SILVA SSU Ref NR v.111 |             10919 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| SILVA 18S eukarya        |   95 |        96.7 |              4512 | SILVA SSU Ref NR v.111 |             31862 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| SILVA 23S bacteria       |   98 |        99.4 |              3055 | SILVA LSU Ref v.111    |             19580 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| SILVA 23s archaea        |   98 |        99.5 |               164 | SILVA LSU Ref v.111    |               405 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| SILVA 28S eukarya        |   98 |        99.1 |              4578 | SILVA LSU Ref v.111    |              9321 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| Rfam 5S archaea/bacteria |   98 |        99.2 |             59513 | RFAM                   |            116760 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+| Rfam 5.8S eukarya        |   98 |        98.9 |             13034 | RFAM                   |            225185 |
++--------------------------+------+-------------+-------------------+------------------------+-------------------+
+
+id %: members of the cluster must have identity at least 'id %' identity with the representative sequence
+
+average id %: average identity of a cluster member to the representative sequence
+
+The user may also choose to use their own rRNA databases.
+
+.. class:: warningmark
+
+Note that your personal databases are indexed each time. The public ribosomal
+databases are indexed when added, but they can be re-indexed with non-default indexing 
+parameters. The indexing may take some time depending on the size of the given database.
+
+]]>
+    </help>
+
+    <citations>
+        <citation type="doi">10.1093/bioinformatics/bts611</citation>
+        <citation type="doi">10.1093/nar/gks1219</citation>
+        <citation type="doi">10.1093/nar/gks1005</citation>
+        <citation type="doi">10.1093/bioinformatics/btq461</citation>
+        <citation type="doi">10.1038/nbt.2198</citation>
+    </citations>
+</tool>

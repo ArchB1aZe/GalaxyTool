@@ -1,0 +1,60 @@
+<tool id="ctb_np-likeness-calculator" name="Natural Product" version="0.2.1">
+    <description>likeness calculator</description>
+    <requirements>
+        <requirement type="package" version="2.0">np-likeness-scorer</requirement>
+    </requirements>
+    <stdio>
+        <exit_code range="1:" />
+        <exit_code range=":-1" />
+    </stdio>
+    <command>
+    <![CDATA[
+        ## NPLC is really picky with file extensions.
+        ## A workaround is to create a symlink with a proper file-extension.
+        #set $temp_link = "temp_file.%s" % ($infile.ext)
+        ln -s $infile $temp_link;
+
+        java -jar \$NPLS_JAR_PATH/NP-Likeness-2.0.jar
+            -in "${temp_link}"
+            -out "${outfile}"
+            #if $reconstruct_fragments:
+                -reconstructFragments true
+                -outFragments $outfragments
+            #end if
+        &&
+        ## replace space with tabular to get it into a proper SMILES format
+        sed -i 's/ /\t/g' "${outfile}"
+    ]]>
+    </command>
+    <inputs>
+        <param format="smi,sdf" name="infile" type="data"
+            label="Molecule file" help="Dataset missing? See TIP below"/>
+        <param name='reconstruct_fragments' type='boolean'
+            truevalue='' falsevalue=''
+            label='Fragments and scores are written out in SMILES format' />
+    </inputs>
+    <outputs>
+        <data format_source="infile" name="outfile" />
+        <data format="tabular" name="outfragments">
+            <filter>reconstruct_fragments is True</filter>
+        </data>
+    </outputs>
+    <help>
+<![CDATA[
+
+**What this tool does**
+
+The `Natural-Product-Likeness Scorer`_ calculates the Natural Product(NP)-likeness of
+a molecule, i.e. the similarity of the molecule to the structure space covered by known
+natural products. The more positive the score, the higher is the NP-likeness and vice versa.
+
+.. _Natural-Product-Likeness Scorer: http://sourceforge.net/projects/np-likeness/
+.. image:: $PATH_TO_IMAGES/score_distribution.png
+
+]]>
+    </help>
+    <citations>
+        <citation type="doi">10.1186/1471-2105-13-106</citation>
+        <citation type="doi">10.1021/ci700286x</citation>
+    </citations>
+</tool>
